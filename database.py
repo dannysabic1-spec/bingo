@@ -60,7 +60,6 @@ async def add_coins(user_id: int, amount: int):
         await db.commit()
 
 async def deduct_coins(user_id: int, amount: int) -> bool:
-    """Returns True if successful, False if not enough coins."""
     u = await get_user(user_id)
     if not u or u["coins"] < amount:
         return False
