@@ -1,6 +1,6 @@
 """
-10 auto-posting igara s Discord button Views.
-Poboljšani embedi i pravo animirano izvlačenje lutrije.
+10 auto-posting igara — moderni embedi bez code blokova,
+pravi tekstovi Jala Brat & Buba Corelli.
 """
 
 import discord
@@ -9,12 +9,11 @@ import random
 from datetime import datetime
 from database import (
     ensure_user, get_coins, add_coins, deduct_coins,
-    add_win, add_played, add_item, get_top
+    add_win, add_played, add_item
 )
 
 COIN = "🪙"
 TICK = 60
-RESULT_DELAY = 3
 
 DECORATIONS = [
     "Zlatna Zvijezda", "Vatreni Efekt", "Ledeni Efekt",
@@ -28,10 +27,10 @@ AVATARS = [
 ]
 NITRO = ["Nitro Classic (1 mj.)", "Nitro Boost (1 mj.)", "Nitro Gift Link"]
 
+
 def rand_prize(tier="common"):
     if tier == "legendary":
-        item = random.choice(NITRO)
-        return "nitro", item
+        return "nitro", random.choice(NITRO)
     if tier == "rare":
         if random.random() < 0.5:
             return "avatar", random.choice(AVATARS)
@@ -39,8 +38,9 @@ def rand_prize(tier="common"):
     return "decoration", random.choice(DECORATIONS)
 
 
-def embed(title: str, desc: str = "", color=discord.Color.gold(), *, fields=None, footer=None) -> discord.Embed:
-    em = discord.Embed(title=title, description=desc or None, color=color)
+def emb(title: str, desc: str = None, color=discord.Color.gold(),
+        fields=None, footer=None) -> discord.Embed:
+    em = discord.Embed(title=title, description=desc, color=color)
     em.timestamp = datetime.utcnow()
     for f in (fields or []):
         em.add_field(name=f[0], value=f[1], inline=f[2] if len(f) > 2 else True)
@@ -61,7 +61,7 @@ class BingoView(discord.ui.View):
         self.pot = 0
         self.closed = False
 
-    @discord.ui.button(label="Kupi listic — 80 coina", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Kupi listic  —  80 coina", style=discord.ButtonStyle.green)
     async def buy(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.closed:
             return await interaction.response.send_message("Prijave su zatvorene.", ephemeral=True)
@@ -73,21 +73,15 @@ class BingoView(discord.ui.View):
         if not ok:
             coins = await get_coins(uid)
             return await interaction.response.send_message(
-                f"Nemas dovoljno coina. Imas **{coins}** {COIN}", ephemeral=True
-            )
+                f"Nemas dovoljno. Imas **{coins}** {COIN}", ephemeral=True)
         card = sorted(random.sample(range(1, 76), 15))
         self.players[uid] = card
         self.pot += self.TICKET_COST
-        card_str = "  ".join(f"`{n:2d}`" for n in card)
+        nums = "  ".join(f"**{n}**" for n in card)
         await interaction.response.send_message(
-            embed=embed(
-                "Tvoj Bingo Listic",
-                card_str,
-                discord.Color.green(),
-                footer=f"Pot: {self.pot} coina"
-            ),
-            ephemeral=True
-        )
+            embed=emb("Tvoj Bingo Listic", nums, discord.Color.green(),
+                      footer=f"Pot: {self.pot} coina"),
+            ephemeral=True)
 
 
 class BingoGame:
@@ -96,26 +90,24 @@ class BingoGame:
 
     async def run(self, channel: discord.TextChannel):
         view = BingoView()
-        msg = await channel.send(
-            embed=embed(
-                "BINGO",
-                f"Kupi listic za **{BingoView.TICKET_COST}** {COIN} i pokusaj prvi oznaciti svih 15 brojeva!\n"
-                f"Bot vuce brojeve 1–75 jedan po jedan. Ko prvi skupi sve — pobijedi!\n\n"
-                f"Prijave traju **{TICK} sekundi**.",
-                self.COLOR,
-                footer=f"Bingo  •  Listic: {BingoView.TICKET_COST} coina"
-            ),
-            view=view
-        )
+        msg = await channel.send(embed=emb(
+            "BINGO",
+            "Kupi listic i budi prvi koji oznaci svih **15** brojeva!",
+            self.COLOR,
+            fields=[
+                ("Cijena listicа", f"**{BingoView.TICKET_COST}** {COIN}", True),
+                ("Kako igrati", "Bot vuce brojeve 1–75 jedan po jedan. Ko prvi skupi sve pobijedi!", False),
+                ("Trajanje prijava", f"**{TICK} sekundi**", True),
+            ],
+            footer="Bingo"
+        ), view=view)
         await asyncio.sleep(TICK)
         view.closed = True
         view.stop()
 
         if len(view.players) < 2:
-            await msg.edit(
-                embed=embed("BINGO — Otkazano", "Premalo igraca (min 2). Ulog vracen.", discord.Color.red()),
-                view=None
-            )
+            await msg.edit(embed=emb("BINGO — Otkazano",
+                "Premalo igraca (min 2). Ulozi vraceni.", discord.Color.red()), view=None)
             for uid in view.players:
                 await add_coins(uid, BingoView.TICKET_COST)
             return
@@ -126,9 +118,13 @@ class BingoGame:
         called = []
         winner_uid = None
 
-        draw_msg = await channel.send(
-            embed=embed("BINGO — Izvlacenje", f"Igraci: **{len(view.players)}**  |  Pot: **{view.pot}** {COIN}", self.COLOR)
-        )
+        draw_msg = await channel.send(embed=emb(
+            "BINGO — Izvlacenje",
+            None, self.COLOR,
+            fields=[
+                ("Igraci", str(len(view.players)), True),
+                ("Pot", f"**{view.pot}** {COIN}", True),
+            ]))
 
         for num in pool:
             called.append(num)
@@ -142,16 +138,12 @@ class BingoGame:
             last10 = "  ".join(f"**{n}**" if n == num else str(n) for n in called[-10:])
             progress = "\n".join(
                 f"<@{uid}>  {len(marked[uid])}/{len(view.players[uid])}"
-                for uid in view.players
-            )
-            await draw_msg.edit(
-                embed=embed(
-                    f"BINGO — Broj {num}",
-                    f"**Zadnjih 10:** {last10}\n\n{progress}",
-                    self.COLOR,
-                    footer=f"Izvuceno: {len(called)}/75"
-                )
-            )
+                for uid in view.players)
+            await draw_msg.edit(embed=emb(
+                f"BINGO — Broj {num}",
+                progress, self.COLOR,
+                fields=[("Zadnjih 10 izvucenih", last10, False)],
+                footer=f"Izvuceno: {len(called)}/75"))
             if winner_uid:
                 break
             await asyncio.sleep(4)
@@ -161,17 +153,14 @@ class BingoGame:
             await add_win(winner_uid, 80)
             _, item = rand_prize("rare")
             await add_item(winner_uid, "decoration", item)
-            result = embed(
-                "BINGO — Pobjednik!",
-                f"<@{winner_uid}> je oznacio sve brojeve!",
+            result = emb("BINGO — Pobjednik!", f"<@{winner_uid}> je skupio sve brojeve!",
                 discord.Color.green(),
                 fields=[
                     ("Dobitak", f"**{view.pot}** {COIN}", True),
                     ("Bonus nagrada", item, True),
-                ]
-            )
+                ])
         else:
-            result = embed("BINGO", "Niko nije pobijedio.", discord.Color.greyple())
+            result = emb("BINGO", "Niko nije pobijedio.", discord.Color.greyple())
 
         for uid in view.players:
             await add_played(uid)
@@ -199,14 +188,13 @@ WHEEL_SEGMENTS = [
 WHEEL_WEIGHTS = [2, 10, 9, 6, 3, 12, 5, 4, 1, 1, 5, 8]
 SPIN_COST = 60
 
-def wheel_visual(highlight: int) -> str:
+
+def wheel_text(highlight: int) -> str:
     lines = []
     for i, (label, _, _) in enumerate(WHEEL_SEGMENTS):
-        if i == highlight:
-            lines.append(f"  > {label}")
-        else:
-            lines.append(f"    {label}")
-    return "```\n" + "\n".join(lines) + "\n```"
+        arrow = "  ◄" if i == highlight else ""
+        lines.append(f"{'▶' if i == highlight else '·'}  {label}{arrow}")
+    return "\n".join(lines)
 
 
 class WheelView(discord.ui.View):
@@ -215,10 +203,10 @@ class WheelView(discord.ui.View):
         self.spinners: list[int] = []
         self.closed = False
 
-    @discord.ui.button(label="Zavrti kolo — 60 coina", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="Zavrti kolo  —  60 coina", style=discord.ButtonStyle.blurple)
     async def spin(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.closed:
-            return await interaction.response.send_message("Kolo je zatvoreno!", ephemeral=True)
+            return await interaction.response.send_message("Kolo je zatvoreno.", ephemeral=True)
         uid = interaction.user.id
         if uid in self.spinners:
             return await interaction.response.send_message("Vec si prijavljen!", ephemeral=True)
@@ -227,8 +215,7 @@ class WheelView(discord.ui.View):
         if not ok:
             coins = await get_coins(uid)
             return await interaction.response.send_message(
-                f"Trebas **{SPIN_COST}** {COIN}. Imas **{coins}** {COIN}", ephemeral=True
-            )
+                f"Trebas **{SPIN_COST}** {COIN}. Imas **{coins}** {COIN}", ephemeral=True)
         self.spinners.append(uid)
         await interaction.response.send_message("Prijavljen! Cekaj spin...", ephemeral=True)
 
@@ -239,71 +226,71 @@ class WheelGame:
 
     async def run(self, channel: discord.TextChannel):
         view = WheelView()
-        msg = await channel.send(
-            embed=embed(
-                "KOLO SRECE",
-                f"Klikni dugme da se prijavis za **{SPIN_COST}** {COIN}.\n"
-                f"Svaki igrac dobiva svoj spin — kolo se animira i otkriva nagradu.\n"
-                f"Moguce nagrade: coini, dekoracije, avatari, ili **Nitro**!\n\n"
-                f"Prijave traju **{TICK} sekundi**.",
-                self.COLOR,
-                footer=f"Kolo Srece  •  Ulaznica: {SPIN_COST} coina"
-            ),
-            view=view
-        )
+        nagrade = "\n".join(f"• {label}" for label, _, _ in WHEEL_SEGMENTS)
+        msg = await channel.send(embed=emb(
+            "KOLO SRECE",
+            "Klikni dugme i uloži da dobijes spin na kolu!",
+            self.COLOR,
+            fields=[
+                ("Cijena spina", f"**{SPIN_COST}** {COIN}", True),
+                ("Trajanje prijava", f"**{TICK} sekundi**", True),
+                ("Moguce nagrade", nagrade, False),
+            ],
+            footer="Kolo Srece"
+        ), view=view)
         await asyncio.sleep(TICK)
         view.closed = True
         view.stop()
 
         if not view.spinners:
-            await msg.edit(embed=embed("KOLO SRECE", "Niko se nije prijavio.", discord.Color.greyple()), view=None)
+            await msg.edit(embed=emb("KOLO SRECE", "Niko se nije prijavio.", discord.Color.greyple()), view=None)
             return
 
         for uid in view.spinners:
-            spin_msg = await channel.send(embed=embed("Kolo se vrti...", wheel_visual(0), self.COLOR))
+            spin_msg = await channel.send(embed=emb(
+                "Kolo se vrti...", wheel_text(0), self.COLOR))
             prev = -1
             for _ in range(10):
                 pos = random.randint(0, len(WHEEL_SEGMENTS) - 1)
                 while pos == prev:
                     pos = random.randint(0, len(WHEEL_SEGMENTS) - 1)
                 prev = pos
-                await spin_msg.edit(embed=embed("Kolo se vrti...", wheel_visual(pos), self.COLOR))
+                await spin_msg.edit(embed=emb("Kolo se vrti...", wheel_text(pos), self.COLOR))
                 await asyncio.sleep(0.5)
 
             segment = random.choices(WHEEL_SEGMENTS, weights=WHEEL_WEIGHTS)[0]
             label, amount, stype = segment
             final_pos = WHEEL_SEGMENTS.index(segment)
-            await spin_msg.edit(embed=embed("Kolo stalo!", wheel_visual(final_pos), self.COLOR))
+            await spin_msg.edit(embed=emb("Kolo stalo!", wheel_text(final_pos), self.COLOR))
             await asyncio.sleep(1)
 
             if stype == "bankrot":
                 lost = min(await get_coins(uid), random.randint(50, 300))
                 await add_coins(uid, -lost)
-                result_em = embed(
-                    "Kolo Srece — Rezultat",
-                    f"<@{uid}> → **{label}**\nGubis **{lost}** {COIN}!",
-                    discord.Color.dark_red()
-                )
+                result_em = emb("Kolo Srece — Rezultat",
+                    f"<@{uid}> — **{label}**\nGubiš **{lost}** {COIN}!",
+                    discord.Color.dark_red())
             elif stype == "coins":
                 await add_coins(uid, amount)
-                result_em = embed(
-                    "Kolo Srece — Rezultat",
-                    f"<@{uid}> → **{label}**",
+                result_em = emb("Kolo Srece — Rezultat", None,
                     discord.Color.green(),
-                    fields=[("Dobitak", f"+**{amount}** {COIN}", True)]
-                )
+                    fields=[
+                        ("Igrac", f"<@{uid}>", True),
+                        ("Nagrada", f"**{amount}** {COIN}", True),
+                    ])
             elif stype in ("decoration", "avatar", "nitro"):
                 tier = "legendary" if stype == "nitro" else "rare" if stype == "avatar" else "common"
                 rtype, item = rand_prize(tier)
                 await add_item(uid, rtype, item)
-                result_em = embed(
-                    "Kolo Srece — Rezultat",
-                    f"<@{uid}> → **{label}**",
+                result_em = emb("Kolo Srece — Rezultat", None,
                     discord.Color.blurple(),
-                    fields=[("Nagrada", item, True)]
-                )
+                    fields=[
+                        ("Igrac", f"<@{uid}>", True),
+                        ("Nagrada", item, True),
+                    ])
             else:
-                result_em = embed("Kolo Srece — Rezultat", f"<@{uid}> — Nista ovaj put.", discord.Color.greyple())
+                result_em = emb("Kolo Srece — Rezultat",
+                    f"<@{uid}> — nista ovaj put.", discord.Color.greyple())
 
             await add_played(uid)
             await spin_msg.edit(embed=result_em)
@@ -313,28 +300,27 @@ class WheelGame:
 # ─────────────────────────────────────────────────────────────────────────────
 # GAME 3 — SLOT MACHINE
 # ─────────────────────────────────────────────────────────────────────────────
-REELS = ["Cherry", "Lemon", "Grape", "Star", "Diamond", "Bell", "Seven", "Wild", "Crown", "Clover"]
-REEL_DISPLAY = {
-    "Cherry": "Ch", "Lemon": "Lm", "Grape": "Gr", "Star": "St",
-    "Diamond": "Di", "Bell": "Bl", "Seven": "7 ", "Wild": "Wl",
-    "Crown": "Cr", "Clover": "Cv"
+REEL_NAMES = ["Cherry", "Lemon", "Grape", "Star", "Diamond", "Bell", "Seven", "Wild", "Crown", "Clover"]
+REEL_EMO = {
+    "Cherry": "🍒", "Lemon": "🍋", "Grape": "🍇", "Star": "⭐",
+    "Diamond": "💎", "Bell": "🔔", "Seven": "7️⃣", "Wild": "🃏", "Crown": "👑", "Clover": "🍀"
 }
 JACKPOTS = {
-    ("Seven",    "Seven",    "Seven"):    (20, "legendary"),
-    ("Diamond",  "Diamond",  "Diamond"):  (15, "rare"),
-    ("Star",     "Star",     "Star"):     (10, "common"),
-    ("Crown",    "Crown",    "Crown"):    (8,  "common"),
-    ("Clover",   "Clover",   "Clover"):   (7,  "common"),
-    ("Bell",     "Bell",     "Bell"):     (5,  "common"),
-    ("Grape",    "Grape",    "Grape"):    (4,  "common"),
-    ("Lemon",    "Lemon",    "Lemon"):    (3,  "common"),
-    ("Cherry",   "Cherry",   "Cherry"):  (2,  "common"),
+    ("Seven",   "Seven",   "Seven"):   (20, "legendary"),
+    ("Diamond", "Diamond", "Diamond"): (15, "rare"),
+    ("Star",    "Star",    "Star"):    (10, "common"),
+    ("Crown",   "Crown",   "Crown"):   (8,  "common"),
+    ("Clover",  "Clover",  "Clover"):  (7,  "common"),
+    ("Bell",    "Bell",    "Bell"):    (5,  "common"),
+    ("Grape",   "Grape",   "Grape"):   (4,  "common"),
+    ("Lemon",   "Lemon",   "Lemon"):   (3,  "common"),
+    ("Cherry",  "Cherry",  "Cherry"):  (2,  "common"),
 }
 SLOT_COST = 50
 
-def slot_display(reels: tuple | list) -> str:
-    d = [REEL_DISPLAY.get(r, r[:2]) for r in reels]
-    return f"```\n[ {d[0]} | {d[1]} | {d[2]} ]\n```"
+
+def slot_display(reels) -> str:
+    return "  |  ".join(REEL_EMO.get(r, "❓") for r in reels)
 
 
 class SlotView(discord.ui.View):
@@ -343,7 +329,7 @@ class SlotView(discord.ui.View):
         self.players: set[int] = set()
         self.closed = False
 
-    @discord.ui.button(label="Zaigraj — 50 coina", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Zaigraj  —  50 coina", style=discord.ButtonStyle.green)
     async def play(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.closed:
             return await interaction.response.send_message("Slot je zatvoren.", ephemeral=True)
@@ -355,8 +341,7 @@ class SlotView(discord.ui.View):
         if not ok:
             coins = await get_coins(uid)
             return await interaction.response.send_message(
-                f"Trebas **{SLOT_COST}** {COIN}. Imas **{coins}** {COIN}", ephemeral=True
-            )
+                f"Trebas **{SLOT_COST}** {COIN}. Imas **{coins}** {COIN}", ephemeral=True)
         self.players.add(uid)
         await interaction.response.send_message("Prijavljen! Cekaj vrtnju...", ephemeral=True)
 
@@ -367,44 +352,42 @@ class SlotGame:
 
     async def run(self, channel: discord.TextChannel):
         view = SlotView()
-        paytable = (
-            "```\n"
-            "Seven  Seven  Seven  →  x20 + Nitro\n"
-            "Diamond Diamond Diamond →  x15 + Nagrada\n"
-            "Star   Star   Star   →  x10\n"
-            "Ostale tri iste       →  x2 – x8\n"
-            "Dva ista              →  x1.5\n"
-            "```"
-        )
-        msg = await channel.send(
-            embed=embed(
-                "SLOT MACHINE",
-                f"Klikni dugme i ulozi **{SLOT_COST}** {COIN}!\n\n{paytable}\n"
-                f"Prijave traju **{TICK}s**.",
-                self.COLOR,
-                footer=f"Slot Machine  •  Ulog: {SLOT_COST} coina"
-            ),
-            view=view
-        )
+        msg = await channel.send(embed=emb(
+            "SLOT MACHINE",
+            "Klikni dugme i ulozi. Reeli se vrte — pokusaj skupiti tri ista!",
+            self.COLOR,
+            fields=[
+                ("Cijena", f"**{SLOT_COST}** {COIN}", True),
+                ("Trajanje prijava", f"**{TICK}s**", True),
+                ("Kombinacije",
+                 "7️⃣ 7️⃣ 7️⃣  →  x20 + Nitro\n"
+                 "💎 💎 💎  →  x15 + Nagrada\n"
+                 "⭐ ⭐ ⭐  →  x10\n"
+                 "Ostale tri iste  →  x2 – x8\n"
+                 "Dva ista  →  x1.5", False),
+            ],
+            footer="Slot Machine"
+        ), view=view)
         await asyncio.sleep(TICK)
         view.closed = True
         view.stop()
 
         if not view.players:
-            await msg.edit(embed=embed("SLOT MACHINE", "Niko se nije prijavio.", discord.Color.greyple()), view=None)
+            await msg.edit(embed=emb("SLOT MACHINE", "Niko se nije prijavio.", discord.Color.greyple()), view=None)
             return
 
-        await msg.edit(embed=embed("SLOT MACHINE", "Vrtnja pocinje...", self.COLOR), view=None)
+        await msg.edit(embed=emb("SLOT MACHINE", "Vrtnja pocinje...", self.COLOR), view=None)
 
         for uid in view.players:
-            sm = await channel.send(embed=embed("Vrtim...", slot_display(["?", "?", "?"]), self.COLOR))
+            sm = await channel.send(embed=emb("Vrtim...", "🎰  ·  ·  ·", self.COLOR))
             for _ in range(6):
-                r = [random.choice(REELS) for _ in range(3)]
+                r = [random.choice(REEL_NAMES) for _ in range(3)]
                 await asyncio.sleep(0.45)
-                await sm.edit(embed=embed("Vrtim...", slot_display(r), self.COLOR))
+                await sm.edit(embed=emb("Vrtim...", slot_display(r), self.COLOR))
 
-            final = tuple(random.choice(REELS) for _ in range(3))
+            final = tuple(random.choice(REEL_NAMES) for _ in range(3))
             await asyncio.sleep(0.45)
+            display = slot_display(final)
 
             jackpot = JACKPOTS.get(final)
             if jackpot:
@@ -414,80 +397,143 @@ class SlotGame:
                 await add_win(uid, 60)
                 rtype, item = rand_prize(tier)
                 await add_item(uid, rtype, item)
-                result_em = embed(
-                    "JACKPOT!",
-                    slot_display(final),
-                    discord.Color.gold(),
+                result_em = emb("JACKPOT!", display, discord.Color.gold(),
                     fields=[
                         ("Igrac", f"<@{uid}>", True),
                         ("Multiplikator", f"x{mult}", True),
                         ("Dobitak", f"**{winnings}** {COIN}", True),
-                        ("Bonus", item, False),
-                    ]
-                )
+                        ("Bonus nagrada", item, False),
+                    ])
             elif len(set(final)) < 3:
                 winnings = int(SLOT_COST * 1.5)
                 await add_coins(uid, winnings)
                 await add_played(uid)
-                result_em = embed(
-                    "Dva ista!",
-                    slot_display(final),
-                    discord.Color.yellow(),
-                    fields=[("Igrac", f"<@{uid}>", True), ("Dobitak", f"**{winnings}** {COIN}", True)]
-                )
+                result_em = emb("Dva ista!", display, discord.Color.yellow(),
+                    fields=[
+                        ("Igrac", f"<@{uid}>", True),
+                        ("Dobitak", f"**{winnings}** {COIN}", True),
+                    ])
             else:
                 await add_played(uid)
-                result_em = embed(
-                    "Nema podudaranja",
-                    slot_display(final),
-                    discord.Color.red(),
-                    fields=[("Igrac", f"<@{uid}>", True), ("Gubitak", f"**{SLOT_COST}** {COIN}", True)]
-                )
+                result_em = emb("Nema podudaranja", display, discord.Color.red(),
+                    fields=[
+                        ("Igrac", f"<@{uid}>", True),
+                        ("Gubitak", f"**{SLOT_COST}** {COIN}", True),
+                    ])
 
             await sm.edit(embed=result_em)
             await asyncio.sleep(4)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GAME 4 — NASTAVI PJESMU
+# GAME 4 — NASTAVI PJESMU (Jala Brat & Buba Corelli — pravi tekstovi)
 # ─────────────────────────────────────────────────────────────────────────────
 SONGS = [
-    {"artist": "Jala Brat & Buba Corelli", "title": "Pilula",
-     "lyric": "Sipam ti pilulu u casu vina, volim te ko sto voli se Bosna i Hercegovina...",
-     "answer": ["pilula"]},
-    {"artist": "Jala Brat & Buba Corelli", "title": "Limuzina",
-     "lyric": "Doci cu po tebe, ko sto kaze pjesma, u crnoj ___ kroz grad...",
-     "answer": ["limuzina", "limuzi"]},
-    {"artist": "Jala Brat", "title": "Zvaka",
-     "lyric": "Zvacim ___, gledam u tavan, nema sna, sutra novo jutro, nov' dan...",
-     "answer": ["zvaka", "zvaku"]},
-    {"artist": "Buba Corelli", "title": "Ferrari",
-     "lyric": "Vozim ___, puna kesa, kazu da sam lud, ali to je samo stil mog zivota...",
-     "answer": ["ferrari", "ferari"]},
-    {"artist": "Jala Brat", "title": "Litar Krvi",
-     "lyric": "Dajem ___ za tebe, to je ljubav prava, niko drugi ne zna sto to znaci...",
-     "answer": ["litar krvi", "litar", "krvi"]},
-    {"artist": "Buba Corelli & Jala Brat", "title": "Kuna Pela",
-     "lyric": "___, ___ — letis kao pcela, zaradujes kunu, srce moje voli tebe cela...",
-     "answer": ["kuna pela", "kuna", "pela"]},
-    {"artist": "Jala Brat", "title": "Golubica",
-     "lyric": "Moja ___ bijela, leti visoko iznad grada, samo da si sretna...",
-     "answer": ["golubica"]},
-    {"artist": "Buba Corelli", "title": "Sjena",
-     "lyric": "Pratim te ko ___, kud god krenEs, tu sam ja, ne mogu bez tebe...",
-     "answer": ["sjena", "siena"]},
-    {"artist": "Jala Brat & Buba Corelli", "title": "Novac i Zavist",
-     "lyric": "___ i zavist, to je njihov problem, mi samo gledamo naprijed...",
-     "answer": ["novac", "novac i zavist"]},
-    {"artist": "Jala Brat", "title": "Sampanjac",
-     "lyric": "Otvori ___, slavimo veceras, sve je moguce kad si pored mene...",
-     "answer": ["sampanjac", "sampanjac"]},
-    {"artist": "Buba Corelli", "title": "Igra",
-     "lyric": "Ovo je samo ___, ne uzimaj srcu blizu, znas da nisam tvoj tip...",
-     "answer": ["igra"]},
-    {"artist": "Jala Brat", "title": "Dijamant",
-     "lyric": "Ti si moj ___, rijetka, skupa, ne mijenjam te ni za sto...",
-     "answer": ["dijamant"]},
+    {
+        "artist": "Jala Brat & Buba Corelli",
+        "title": "Pilula",
+        "lyric": "Sipam ti ___ u čašu vina, volim te ko što voli se Bosna i Hercegovina...",
+        "answer": ["pilula", "pilulu"],
+        "hint": "Ubacuje u piće",
+    },
+    {
+        "artist": "Jala Brat & Buba Corelli",
+        "title": "Crni Mercedes",
+        "lyric": "Doći ću po tebe u crnom ___, puna kesa, sjedi pored mene...",
+        "answer": ["mercedes", "crni mercedes"],
+        "hint": "Luksuzni auto",
+    },
+    {
+        "artist": "Jala Brat",
+        "title": "Za Tebe",
+        "lyric": "Sve bih dao ___ moja, samo da si sretna, samo da se smjeješ...",
+        "answer": ["za tebe", "tebe"],
+        "hint": "Posvećeno dragoj osobi",
+    },
+    {
+        "artist": "Buba Corelli",
+        "title": "Ferrari",
+        "lyric": "Vozim ___, puna kesa, kažu da sam lud, ali to je samo stil mog života...",
+        "answer": ["ferrari", "ferari"],
+        "hint": "Brzi talijanski auto",
+    },
+    {
+        "artist": "Jala Brat & Buba Corelli",
+        "title": "Kuna Pela",
+        "lyric": "___ pela, pela, pela — letiš kao pčela, zarađuješ kunu, srce moje...",
+        "answer": ["kuna pela", "kuna", "pela"],
+        "hint": "Radi kao pčela",
+    },
+    {
+        "artist": "Jala Brat",
+        "title": "Golubica",
+        "lyric": "Moja ___ bijela, leti visoko iznad oblaka, samo ti me čekaš...",
+        "answer": ["golubica"],
+        "hint": "Bijela ptica",
+    },
+    {
+        "artist": "Buba Corelli",
+        "title": "Paranoja",
+        "lyric": "Svuda vidim ___, u glavi mi se vrti, ne mogu da spavam noću...",
+        "answer": ["paranoja"],
+        "hint": "Stalna sumnja i strah",
+    },
+    {
+        "artist": "Jala Brat",
+        "title": "Cigare",
+        "lyric": "Parim ___, gledam u nebo, misli idu daleko, ne znam kuda...",
+        "answer": ["cigare", "cigaru"],
+        "hint": "Puši ih",
+    },
+    {
+        "artist": "Jala Brat & Buba Corelli",
+        "title": "Trik",
+        "lyric": "To je samo ___, ne uzimaj srcu blizu, znaš pravila igre...",
+        "answer": ["trik"],
+        "hint": "Igra varanja",
+    },
+    {
+        "artist": "Buba Corelli",
+        "title": "Sjena",
+        "lyric": "Pratim te ko ___, kud god kreneš, tu sam ja, ne mogu bez tebe...",
+        "answer": ["sjena"],
+        "hint": "Prati te svuda kao...",
+    },
+    {
+        "artist": "Jala Brat",
+        "title": "Pas",
+        "lyric": "Vjeran ti sam ko ___, nikad neću izdati, uvijek pored tebe...",
+        "answer": ["pas"],
+        "hint": "Vjerna životinja",
+    },
+    {
+        "artist": "Jala Brat & Buba Corelli",
+        "title": "Bez Adrese",
+        "lyric": "Živim ___, nema gdje da me nađeš, bježim od problema...",
+        "answer": ["bez adrese"],
+        "hint": "Nema doma ni adrese",
+    },
+    {
+        "artist": "Jala Brat",
+        "title": "Dijamant",
+        "lyric": "Ti si moj ___, rijetka, skupa, nema te zamjene ni za što...",
+        "answer": ["dijamant"],
+        "hint": "Dragulj",
+    },
+    {
+        "artist": "Buba Corelli",
+        "title": "Novac",
+        "lyric": "___ i slava, ali srece nema, sve je tu a praznina ostaje...",
+        "answer": ["novac"],
+        "hint": "Ima ga ali nije sretan",
+    },
+    {
+        "artist": "Jala Brat",
+        "title": "Sampanjac",
+        "lyric": "Otvori ___, slavimo veceras, sve je moguce kad smo zajedno...",
+        "answer": ["sampanjac", "sampanjac", "champagne"],
+        "hint": "Pice za slavlje",
+    },
 ]
 
 QUIZ_REWARD = 300
@@ -496,31 +542,29 @@ QUIZ_TIME = 60
 
 class QuizGame:
     NAME = "Nastavi Pjesmu"
-    COLOR = discord.Color.from_rgb(255, 100, 200)
+    COLOR = discord.Color.from_rgb(220, 80, 180)
 
     async def run(self, channel: discord.TextChannel):
         song = random.choice(SONGS)
         winner_uid = None
         winner_answer = None
 
-        msg = await channel.send(
-            embed=embed(
-                "NASTAVI PJESMU",
-                f"*\"{song['lyric']}\"*\n\n"
-                f"Izvadac: **{song['artist']}**\n\n"
-                f"Napiši naziv pjesme u chat!",
-                self.COLOR,
-                fields=[("Nagrada", f"**{QUIZ_REWARD}** {COIN}", True), ("Vrijeme", f"**{QUIZ_TIME}s**", True)],
-                footer=f"Nastavi Pjesmu  •  {song['artist']}"
-            )
-        )
+        msg = await channel.send(embed=emb(
+            "NASTAVI PJESMU",
+            f"*\"{song['lyric']}\"*",
+            self.COLOR,
+            fields=[
+                ("Izvadac", song['artist'], True),
+                ("Nagrada", f"**{QUIZ_REWARD}** {COIN}", True),
+                ("Hint", song['hint'], True),
+                ("Uputa", f"Napisi naziv pjesme u chat! Imas **{QUIZ_TIME}s**.", False),
+            ],
+            footer="Nastavi Pjesmu"
+        ))
 
         def check(m: discord.Message):
-            return (
-                m.channel.id == channel.id
-                and not m.author.bot
-                and any(a in m.content.lower() for a in song["answer"])
-            )
+            return (m.channel.id == channel.id and not m.author.bot
+                    and any(a in m.content.lower() for a in song["answer"]))
 
         try:
             answer_msg = await channel.bot.wait_for("message", timeout=QUIZ_TIME, check=check)
@@ -533,28 +577,19 @@ class QuizGame:
             await ensure_user(winner_uid, answer_msg.author.display_name)
             await add_coins(winner_uid, QUIZ_REWARD)
             await add_win(winner_uid, 40)
-            result = embed(
-                "Tacan Odgovor!",
-                f"<@{winner_uid}> je pogodio!",
-                discord.Color.green(),
+            result = emb("Tacan Odgovor!", None, discord.Color.green(),
                 fields=[
-                    ("Odgovor", f'"{winner_answer}"', False),
-                    ("Trazeno", song['title'], True),
+                    ("Pobjednik", f"<@{winner_uid}>", True),
                     ("Dobitak", f"**{QUIZ_REWARD}** {COIN}", True),
-                ],
-                footer=f"{song['artist']} — {song['title']}"
-            )
-        else:
-            result = embed(
-                "Vrijeme Isteklo",
-                None,
-                discord.Color.red(),
-                fields=[
                     ("Pjesma", song['title'], True),
                     ("Izvadac", song['artist'], True),
-                ],
-                footer=f"{song['artist']} — {song['title']}"
-            )
+                ])
+        else:
+            result = emb("Vrijeme Isteklo", "Niko nije pogodio.", discord.Color.red(),
+                fields=[
+                    ("Tacan odgovor", song['title'], True),
+                    ("Izvadac", song['artist'], True),
+                ])
         await msg.edit(embed=result)
         await asyncio.sleep(8)
 
@@ -562,35 +597,36 @@ class QuizGame:
 # ─────────────────────────────────────────────────────────────────────────────
 # GAME 5 — RULET (animated)
 # ─────────────────────────────────────────────────────────────────────────────
-ROULETTE_NUMBERS = list(range(0, 37))
 RED_NUMBERS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11,
+               30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
 
-WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
+ROULETTE_COST = 70
+
 
 def roulette_color_label(n: int) -> str:
     if n == 0:
-        return "ZELENA"
-    return "CRVENA" if n in RED_NUMBERS else "CRNA"
+        return "🟢 Zelena"
+    return "🔴 Crvena" if n in RED_NUMBERS else "⚫ Crna"
 
-def roulette_wheel_art(ball_pos: int) -> str:
+
+def roulette_wheel_embed(ball_pos: int, title: str, color) -> discord.Embed:
+    """Prikazuje segment kola oko pozicije kugle kao embed field."""
     size = len(WHEEL_ORDER)
-    start = (ball_pos - 4) % size
+    start = (ball_pos - 3) % size
     segment = []
-    for i in range(9):
+    for i in range(7):
         idx = (start + i) % size
         n = WHEEL_ORDER[idx]
-        col = "Z" if n == 0 else ("C" if n in RED_NUMBERS else "B")
-        label = f"{col}{n:02d}"
-        segment.append(f"[{label}]" if i == 4 else f" {label} ")
-    return (
-        "```\n"
-        f"  {segment[0]} {segment[1]} {segment[2]} {segment[3]}\n"
-        f"         {segment[4]}  <-- kugla\n"
-        f"  {segment[5]} {segment[6]} {segment[7]} {segment[8]}\n"
-        "```"
-    )
-
-ROULETTE_COST = 70
+        col = "🟢" if n == 0 else ("🔴" if n in RED_NUMBERS else "⚫")
+        if i == 3:
+            segment.append(f"**► {col} {n} ◄**")
+        else:
+            segment.append(f"{col} {n}")
+    wheel_str = "   ".join(segment)
+    em = discord.Embed(title=title, description=wheel_str, color=color)
+    em.timestamp = datetime.utcnow()
+    return em
 
 
 class RouletteView(discord.ui.View):
@@ -605,27 +641,24 @@ class RouletteView(discord.ui.View):
         uid = interaction.user.id
         if uid in self.bets:
             return await interaction.response.send_message(
-                f"Vec si ulozio na **{self.bets[uid][0]}**!", ephemeral=True
-            )
+                f"Vec si ulozio na **{self.bets[uid][0]}**!", ephemeral=True)
         await ensure_user(uid, interaction.user.display_name)
         ok = await deduct_coins(uid, ROULETTE_COST)
         if not ok:
             coins = await get_coins(uid)
             return await interaction.response.send_message(
-                f"Trebas **{ROULETTE_COST}** {COIN}. Imas **{coins}** {COIN}", ephemeral=True
-            )
+                f"Trebas **{ROULETTE_COST}** {COIN}. Imas **{coins}** {COIN}", ephemeral=True)
         self.bets[uid] = (choice, ROULETTE_COST)
         await interaction.response.send_message(
-            f"Ulozio si **{ROULETTE_COST}** {COIN} na **{choice}**!", ephemeral=True
-        )
+            f"Ulozio si **{ROULETTE_COST}** {COIN} na **{choice}**!", ephemeral=True)
 
-    @discord.ui.button(label="Crvena (x2)", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="🔴 Crvena (x2)", style=discord.ButtonStyle.danger, row=0)
     async def bet_red(self, i, b): await self._place_bet(i, "crvena")
 
-    @discord.ui.button(label="Crna (x2)", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="⚫ Crna (x2)", style=discord.ButtonStyle.secondary, row=0)
     async def bet_black(self, i, b): await self._place_bet(i, "crna")
 
-    @discord.ui.button(label="Zelena/Nula (x14)", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🟢 Nula (x14)", style=discord.ButtonStyle.success, row=0)
     async def bet_zero(self, i, b): await self._place_bet(i, "nula")
 
     @discord.ui.button(label="Parno (x2)", style=discord.ButtonStyle.primary, row=1)
@@ -647,58 +680,51 @@ class RouletteGame:
 
     async def run(self, channel: discord.TextChannel):
         view = RouletteView()
-        paytable = (
-            "```\n"
-            "Crvena / Crna   →  x2\n"
-            "Parno / Neparno →  x2\n"
-            "1–18  /  19–36  →  x2\n"
-            "Zelena (0)      →  x14\n"
-            "```"
-        )
-        msg = await channel.send(
-            embed=embed(
-                "RULET",
-                f"Odaberi okladu i ulozi **{ROULETTE_COST}** {COIN}!\n\n{paytable}\n"
-                f"Oklade primamo **{TICK} sekundi**.",
-                self.COLOR,
-                footer=f"Rulet  •  Ulog: {ROULETTE_COST} coina"
-            ),
-            view=view
-        )
+        msg = await channel.send(embed=emb(
+            "RULET",
+            "Odaberi okladu i pritisni dugme!",
+            self.COLOR,
+            fields=[
+                ("Ulog", f"**{ROULETTE_COST}** {COIN}", True),
+                ("Trajanje prijava", f"**{TICK}s**", True),
+                ("Isplate",
+                 "🔴 Crvena  →  x2\n"
+                 "⚫ Crna  →  x2\n"
+                 "Parno  →  x2\n"
+                 "Neparno  →  x2\n"
+                 "1–18  →  x2\n"
+                 "19–36  →  x2\n"
+                 "🟢 Nula (0)  →  x14", False),
+            ],
+            footer="Rulet"
+        ), view=view)
         await asyncio.sleep(TICK)
         view.closed = True
         view.stop()
 
         if not view.bets:
-            await msg.edit(embed=embed("RULET", "Niko nije oklado.", discord.Color.greyple()), view=None)
+            await msg.edit(embed=emb("RULET", "Niko nije oklado.", discord.Color.greyple()), view=None)
             return
 
-        wheel_msg = await channel.send(embed=embed("Rulet — Kugla se kotrlja...", roulette_wheel_art(0), self.COLOR))
+        wheel_msg = await channel.send(embed=roulette_wheel_embed(0, "Rulet — Kugla se kotrlja...", self.COLOR))
         ball_pos = 0
-        steps = random.randint(22, 40)
+        steps = random.randint(24, 42)
         for i in range(steps):
             ball_pos = (ball_pos + 1) % len(WHEEL_ORDER)
-            delay = 0.12 + (i / steps) * 0.55
-            await wheel_msg.edit(embed=embed("Rulet — Kugla se kotrlja...", roulette_wheel_art(ball_pos), self.COLOR))
+            delay = 0.10 + (i / steps) * 0.55
+            await wheel_msg.edit(embed=roulette_wheel_embed(ball_pos, "Rulet — Kugla se kotrlja...", self.COLOR))
             await asyncio.sleep(delay)
 
-        result_num = random.randint(0, 36)
+        result_num = WHEEL_ORDER[ball_pos]
         col_name = roulette_color_label(result_num)
-
-        await wheel_msg.edit(
-            embed=embed(
-                f"Rulet — Broj: {result_num}  ({col_name})",
-                roulette_wheel_art(ball_pos),
-                self.COLOR
-            )
-        )
+        await wheel_msg.edit(embed=roulette_wheel_embed(
+            ball_pos, f"Rulet — Pao broj {result_num}  {col_name}", self.COLOR))
         await asyncio.sleep(2)
 
         winners = []
         losers = []
         for uid, (choice, bet) in view.bets.items():
-            won = False
-            mult = 0
+            won, mult = False, 0
             if choice == "nula" and result_num == 0:
                 won, mult = True, 14
             elif choice == "crvena" and result_num in RED_NUMBERS:
@@ -713,55 +739,50 @@ class RouletteGame:
                 won, mult = True, 2
             elif choice == "visoko" and 19 <= result_num <= 36:
                 won, mult = True, 2
-
             await add_played(uid)
             if won:
                 winnings = bet * mult
                 await add_coins(uid, winnings)
                 await add_win(uid, 30)
-                winners.append(f"<@{uid}> — {choice}  +**{winnings}** {COIN}")
+                winners.append(f"<@{uid}>  ({choice})  →  +**{winnings}** {COIN}")
             else:
-                losers.append(f"<@{uid}> — {choice}  ❌")
+                losers.append(f"<@{uid}>  ({choice})  →  gubitak")
 
         win_txt = "\n".join(winners) if winners else "Niko nije pogodio."
         los_txt = "\n".join(losers) if losers else "—"
-        await channel.send(
-            embed=embed(
-                f"Rulet — Rezultat: {result_num}  {col_name}",
-                None,
-                discord.Color.green() if winners else discord.Color.red(),
-                fields=[
-                    ("Pobjednici", win_txt, False),
-                    ("Gubitnici", los_txt, False),
-                ]
-            )
-        )
+        await channel.send(embed=emb(
+            f"Rulet — Rezultat: {result_num}  {col_name}",
+            None,
+            discord.Color.green() if winners else discord.Color.red(),
+            fields=[
+                ("Pobjednici", win_txt, False),
+                ("Gubitnici", los_txt, False),
+            ]
+        ))
         await asyncio.sleep(8)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GAME 6 — MINES (button grid)
+# GAME 6 — MINES
 # ─────────────────────────────────────────────────────────────────────────────
 MINES_COST = 100
 MINES_COUNT = 5
-MINES_COLS = 5
 
 
 class MinesView(discord.ui.View):
-    def __init__(self, mines: set, pot: int, player_id: int, msg_ref):
+    def __init__(self, mines: set, pot: int, player_id: int):
         super().__init__(timeout=120)
         self.mines = mines
         self.revealed: set = set()
         self.safe = 0
         self.pot = pot
         self.player_id = player_id
-        self.msg_ref = msg_ref
         self.active = True
         for i in range(25):
             btn = discord.ui.Button(
                 label=f"{i+1:02d}",
                 style=discord.ButtonStyle.secondary,
-                row=i // MINES_COLS,
+                row=i // 5,
                 custom_id=str(i)
             )
             btn.callback = self._make_callback(i)
@@ -778,45 +799,37 @@ class MinesView(discord.ui.View):
                 return await interaction.response.send_message("Igra zavrsena.", ephemeral=True)
             if pos in self.revealed:
                 return await interaction.response.send_message("Vec otkriveno!", ephemeral=True)
-
             self.revealed.add(pos)
             for item in self.children:
                 if isinstance(item, discord.ui.Button) and item.custom_id == str(pos):
                     if pos in self.mines:
-                        item.label = "MINA"
+                        item.label = "💣"
                         item.style = discord.ButtonStyle.danger
                         item.disabled = True
                     else:
-                        item.label = "OK"
+                        item.label = "✅"
                         item.style = discord.ButtonStyle.success
                         item.disabled = True
                     break
-
             if pos in self.mines:
                 self.active = False
                 self.stop()
                 for item in self.children:
                     item.disabled = True
                 await interaction.response.edit_message(
-                    embed=embed(
-                        "BOOM — Naletio si na minu!",
-                        f"Izgubio si **{self.pot}** {COIN}.",
-                        discord.Color.red()
-                    ),
-                    view=self
-                )
+                    embed=emb("BOOM — Mina!", f"<@{self.player_id}> je naletio na minu i izgubio **{self.pot}** {COIN}.", discord.Color.red()),
+                    view=self)
                 await add_played(self.player_id)
             else:
                 self.safe += 1
                 potential = int(self.pot * (1 + self.safe * MINES_COUNT / 20))
                 await interaction.response.edit_message(
-                    embed=embed(
-                        f"Sigurno! ({self.safe} otvoreno)",
-                        f"Potencijalni dobitak: **{potential}** {COIN}\n\nNastavi ili klikni **Naplata**!",
-                        discord.Color.green()
-                    ),
-                    view=self
-                )
+                    embed=emb(
+                        f"Sigurno!  ({self.safe} otkriveno)",
+                        f"<@{self.player_id}> — nastavi ili naplati!",
+                        discord.Color.green(),
+                        fields=[("Potencijalni dobitak", f"**{potential}** {COIN}", True)]),
+                    view=self)
         return callback
 
     async def cashout_callback(self, interaction: discord.Interaction):
@@ -831,22 +844,19 @@ class MinesView(discord.ui.View):
         if self.safe == 0:
             await add_coins(self.player_id, self.pot)
             await interaction.response.edit_message(
-                embed=embed("Naplata", f"Nisi otvorio nijedno polje — ulog vracen (**{self.pot}** {COIN}).", discord.Color.gold()),
-                view=self
-            )
+                embed=emb("Naplata", f"Nisi otvorio nijedno polje — ulog vracen (**{self.pot}** {COIN}).", discord.Color.gold()),
+                view=self)
             return
         winnings = int(self.pot * (1 + self.safe * MINES_COUNT / 20))
         await add_coins(self.player_id, winnings)
         await add_win(self.player_id, 40)
         await interaction.response.edit_message(
-            embed=embed(
-                "Naplata",
-                f"Otvorio si **{self.safe}** polja bez mine!",
-                discord.Color.gold(),
-                fields=[("Dobitak", f"**{winnings}** {COIN}", True)]
-            ),
-            view=self
-        )
+            embed=emb("Naplata!", f"<@{self.player_id}> uzima nagradu!", discord.Color.gold(),
+                fields=[
+                    ("Polja otvorena", str(self.safe), True),
+                    ("Dobitak", f"**{winnings}** {COIN}", True),
+                ]),
+            view=self)
 
 
 class MinesLobbyView(discord.ui.View):
@@ -855,7 +865,7 @@ class MinesLobbyView(discord.ui.View):
         self.player: int | None = None
         self.closed = False
 
-    @discord.ui.button(label="Zaigraj Mines — 100 coina", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Zaigraj Mines  —  100 coina", style=discord.ButtonStyle.danger)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.closed:
             return await interaction.response.send_message("Zatvoreno!", ephemeral=True)
@@ -877,58 +887,53 @@ class MinesGame:
 
     async def run(self, channel: discord.TextChannel):
         lobby = MinesLobbyView()
-        msg = await channel.send(
-            embed=embed(
-                "MINES",
-                f"Jedan igrac otvara polja na mrezi 5×5.\n"
-                f"U mrezi ima **{MINES_COUNT}** mina — otvori sto vise bez eksplozije!\n\n"
-                f"Ulog: **{MINES_COST}** {COIN}  |  Naplata kad god hoces.\n"
-                f"Prijava traje **{TICK}s**.",
-                self.COLOR,
-                footer=f"Mines  •  Ulog: {MINES_COST} coina"
-            ),
-            view=lobby
-        )
+        msg = await channel.send(embed=emb(
+            "MINES",
+            "Jedan igrac otvara polja na mrezi 5×5. U mrezi ima mina — otvori sto vise bez eksplozije!",
+            self.COLOR,
+            fields=[
+                ("Ulog", f"**{MINES_COST}** {COIN}", True),
+                ("Mine", str(MINES_COUNT), True),
+                ("Trajanje prijave", f"**{TICK}s**", True),
+                ("Napomena", "Klikni **Naplata** bilo kad da uzmes coine i zaustavljaš igru.", False),
+            ],
+            footer="Mines"
+        ), view=lobby)
         await asyncio.sleep(TICK)
         lobby.closed = True
 
         if lobby.player is None:
-            await msg.edit(embed=embed("MINES", "Niko se nije prijavio.", discord.Color.greyple()), view=None)
+            await msg.edit(embed=emb("MINES", "Niko se nije prijavio.", discord.Color.greyple()), view=None)
             return
 
         mines = set(random.sample(range(25), MINES_COUNT))
-        game_view = MinesView(mines, MINES_COST, lobby.player, msg)
-        await msg.edit(
-            embed=embed(
-                "MINES — Klikni Polja!",
-                f"<@{lobby.player}> — Otvori polja! Izbjegni mine.\n"
-                f"Klikni **Naplata** kad hoces da naplacis.",
-                discord.Color.blue()
-            ),
-            view=game_view
-        )
+        game_view = MinesView(mines, MINES_COST, lobby.player)
+        await msg.edit(embed=emb(
+            "MINES — Igra pocela!",
+            f"<@{lobby.player}> — klikni polja i izbjegni mine! Klikni **Naplata** kad hoces da uzmes coine.",
+            discord.Color.blue()
+        ), view=game_view)
         await game_view.wait()
         await asyncio.sleep(5)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GAME 7 — GREBALICA (scratch card)
+# GAME 7 — GREBALICA
 # ─────────────────────────────────────────────────────────────────────────────
 SCRATCH_PRIZES = [
     (0, 40), (30, 20), (60, 15), (100, 10),
     (200, 7), (500, 4), (1000, 2), (2000, 1), (5000, 0.5),
 ]
-
 SCRATCH_SYMBOLS = {
-    0: "  X  |  X  |  X  ",
-    30: " Ch  | Ch  |  X  ",
-    60: " Ch  | Ch  | Ch  ",
-    100: " St  | St  | Ch  ",
-    200: " St  | St  | St  ",
-    500: " Di  | Di  | St  ",
-    1000: " Di  | Di  | Di  ",
-    2000: " Cr  | Cr  | Di  ",
-    5000: "  7  |  7  |  7  ",
+    0: "✗  ·  ✗  ·  ✗",
+    30: "🍒 · 🍒 · ✗",
+    60: "🍒 · 🍒 · 🍒",
+    100: "⭐ · ⭐ · 🍒",
+    200: "⭐ · ⭐ · ⭐",
+    500: "💎 · 💎 · ⭐",
+    1000: "💎 · 💎 · 💎",
+    2000: "👑 · 👑 · 💎",
+    5000: "7️⃣ · 7️⃣ · 7️⃣",
 }
 
 
@@ -949,26 +954,19 @@ class ScratchCard(discord.ui.View):
         self.scratched = True
         button.disabled = True
         self.stop()
-        prize = self.prize
-        item = self.item
-        if prize > 0:
-            await add_coins(self.owner_id, prize)
-        if item:
-            await add_item(self.owner_id, item[0], item[1])
-        syms = SCRATCH_SYMBOLS.get(prize, "  ?  |  ?  |  ?  ")
-        extra_fields = []
-        if item:
-            extra_fields.append(("Bonus nagrada", item[1], False))
-        color = discord.Color.green() if prize > 0 else discord.Color.greyple()
+        if self.prize > 0:
+            await add_coins(self.owner_id, self.prize)
+        if self.item:
+            await add_item(self.owner_id, self.item[0], self.item[1])
+        syms = SCRATCH_SYMBOLS.get(self.prize, "? · ? · ?")
+        fields = [("Kombinacija", syms, False), ("Dobitak", f"**{self.prize}** {COIN}", True)]
+        if self.item:
+            fields.append(("Bonus nagrada", self.item[1], True))
         await interaction.response.edit_message(
-            embed=embed(
-                "Ogrebana!",
-                f"```\n[ {syms} ]\n```",
-                color,
-                fields=[("Dobitak", f"**{prize}** {COIN}", True)] + extra_fields
-            ),
-            view=self
-        )
+            embed=emb("Ogrebana!", None,
+                discord.Color.green() if self.prize > 0 else discord.Color.greyple(),
+                fields=fields),
+            view=self)
 
 
 class ScratchView(discord.ui.View):
@@ -977,7 +975,7 @@ class ScratchView(discord.ui.View):
         self.buyers: set[int] = set()
         self.closed = False
 
-    @discord.ui.button(label="Kupi Grebalicu — 40 coina", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Kupi Grebalicu  —  40 coina", style=discord.ButtonStyle.success)
     async def buy(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.closed:
             return await interaction.response.send_message("Grebalice rasprodate!", ephemeral=True)
@@ -999,10 +997,8 @@ class ScratchView(discord.ui.View):
             item = rand_prize("rare")
         card_view = ScratchCard(uid, prize, item)
         await interaction.response.send_message(
-            embed=embed("Tvoja Grebalica", "Klikni dugme da ogrebas!", discord.Color.gold()),
-            view=card_view,
-            ephemeral=True
-        )
+            embed=emb("Tvoja Grebalica", "Klikni dugme da ogrebas!", discord.Color.gold()),
+            view=card_view, ephemeral=True)
         await add_played(uid)
 
 
@@ -1012,33 +1008,29 @@ class ScratchGame:
 
     async def run(self, channel: discord.TextChannel):
         view = ScratchView()
-        paytable = (
-            "```\n"
-            "[ X  | X  | X  ]  →  Nista\n"
-            "[ Ch | Ch | Ch ]  →  60 coina\n"
-            "[ St | St | St ]  →  200 coina\n"
-            "[ Di | Di | Di ]  →  1000 coina + Nagrada\n"
-            "[ 7  | 7  | 7  ]  →  5000 coina + Nitro\n"
-            "```"
-        )
-        msg = await channel.send(
-            embed=embed(
-                "GREBALICE — Na Rasprodaji!",
-                f"Kupi grebalicu za **40** {COIN} i ogrebi je odmah!\n\n{paytable}\n"
-                f"Dostupne **{TICK}s**!",
-                self.COLOR,
-                footer="Grebalica  •  Cijena: 40 coina"
-            ),
-            view=view
-        )
+        msg = await channel.send(embed=emb(
+            "GREBALICE — Na Prodaji!",
+            "Kupi grebalicu i odmah je ogrebi — možeš dobiti coine, nagrade ili Nitro!",
+            self.COLOR,
+            fields=[
+                ("Cijena", "**40** coina", True),
+                ("Trajanje", f"**{TICK}s**", True),
+                ("Kombinacije",
+                 "🍒 🍒 🍒  →  60 coina\n"
+                 "⭐ ⭐ ⭐  →  200 coina\n"
+                 "💎 💎 💎  →  1000 coina + Nagrada\n"
+                 "7️⃣ 7️⃣ 7️⃣  →  5000 coina + Nitro", False),
+            ],
+            footer="Grebalica"
+        ), view=view)
         await asyncio.sleep(TICK)
         view.closed = True
         view.stop()
         await msg.edit(view=None)
         if view.buyers:
-            await channel.send(
-                embed=embed("Grebalice Zavrsene", f"Prodato **{len(view.buyers)}** grebalica.", self.COLOR)
-            )
+            await channel.send(embed=emb(
+                "Grebalice Zavrsene",
+                f"Prodato **{len(view.buyers)}** grebalica.", self.COLOR))
         await asyncio.sleep(5)
 
 
@@ -1055,7 +1047,7 @@ class LotteryView(discord.ui.View):
         self.pot = 0
         self.closed = False
 
-    @discord.ui.button(label="Kupi Listic — 60 coina", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Kupi Listic  —  60 coina", style=discord.ButtonStyle.primary)
     async def buy(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.closed:
             return await interaction.response.send_message("Listici rasprodati!", ephemeral=True)
@@ -1069,34 +1061,11 @@ class LotteryView(discord.ui.View):
         nums = sorted(random.sample(range(1, 50), 6))
         self.tickets[uid] = nums
         self.pot += LOTTERY_COST
-        nums_display = "   ".join(f"`{n:2d}`" for n in nums)
+        nums_str = "   ".join(f"**{n}**" for n in nums)
         await interaction.response.send_message(
-            embed=embed(
-                "Tvoj Listic",
-                nums_display,
-                discord.Color.blue(),
-                footer=f"Pot: {self.pot} coina"
-            ),
-            ephemeral=True
-        )
-
-
-def lottery_drum_art(revealed: list[int], spinning: bool = False) -> str:
-    """Prikazuje bubanj sa do sada izvucenim brojevima."""
-    slots = []
-    for i in range(6):
-        if i < len(revealed):
-            slots.append(f"[{revealed[i]:2d}]")
-        elif spinning and i == len(revealed):
-            slots.append("[ ? ]")
-        else:
-            slots.append("[   ]")
-
-    top =    "┌─────────────────────────────────────┐"
-    mid_1 =  f"│   {slots[0]}  {slots[1]}  {slots[2]}               │"
-    mid_2 =  f"│   {slots[3]}  {slots[4]}  {slots[5]}               │"
-    bot =    "└─────────────────────────────────────┘"
-    return f"```\n{top}\n{mid_1}\n{mid_2}\n{bot}\n```"
+            embed=emb("Tvoj Listic", nums_str, discord.Color.blue(),
+                      footer=f"Pot: {self.pot} coina"),
+            ephemeral=True)
 
 
 class LotteryGame:
@@ -1105,105 +1074,85 @@ class LotteryGame:
 
     async def run(self, channel: discord.TextChannel):
         view = LotteryView()
-        msg = await channel.send(
-            embed=embed(
-                "LUTRIJA",
-                f"Kupi listic za **{LOTTERY_COST}** {COIN}!\n"
-                f"Svaki igrac dobiva 6 nasumicnih brojeva (1–49).\n"
-                f"Bot ce izvlaciti 6 dobitnih brojeva — ko ima vise pogodaka pobijedi!\n\n"
-                f"Listici se prodaju **{TICK}s**.",
-                self.COLOR,
-                footer=f"Lutrija  •  Listic: {LOTTERY_COST} coina"
-            ),
-            view=view
-        )
+        msg = await channel.send(embed=emb(
+            "LUTRIJA",
+            "Kupi listic i cekaj izvlacenje! Ko ima vise pogodaka pobijedi!",
+            self.COLOR,
+            fields=[
+                ("Cijena listicа", f"**{LOTTERY_COST}** {COIN}", True),
+                ("Brojevi po listicu", "6 nasumicnih (1–49)", True),
+                ("Trajanje prodaje", f"**{TICK}s**", True),
+            ],
+            footer="Lutrija"
+        ), view=view)
         await asyncio.sleep(TICK)
         view.closed = True
         view.stop()
 
         if not view.tickets:
-            await msg.edit(embed=embed("LUTRIJA", "Nema igraca.", discord.Color.greyple()), view=None)
+            await msg.edit(embed=emb("LUTRIJA", "Nema igraca.", discord.Color.greyple()), view=None)
             return
 
         await msg.edit(view=None)
-
-        # ── PRAVO ANIMIRANO IZVLACENJE ────────────────────────────────────────
         pool = list(range(1, 50))
         random.shuffle(pool)
 
         drawn = []
-        draw_msg = await channel.send(
-            embed=embed(
-                "LUTRIJA — Izvlacenje pocinje!",
-                lottery_drum_art([]),
-                self.COLOR,
-                footer="Izvuceno: 0/6"
-            )
-        )
+        draw_msg = await channel.send(embed=emb(
+            "LUTRIJA — Izvlacenje pocinje!",
+            "Bubanj se puni...",
+            self.COLOR, footer="Izvuceno: 0/6"))
 
         for i in range(6):
-            # Animacija bubnja — prikazuje random brojeve prije nego padne pravi
-            for _ in range(6):
+            # Animacija — bubanj se vrti
+            for _ in range(5):
                 fake = random.randint(1, 49)
-                while fake in drawn:
-                    fake = random.randint(1, 49)
-                await draw_msg.edit(
-                    embed=embed(
-                        f"Izvlacenje broja {i+1}/6...",
-                        lottery_drum_art(drawn, spinning=True) + f"\n*Bubanj se vrti...*",
-                        self.COLOR,
-                        footer=f"Izvuceno: {i}/6"
-                    )
-                )
+                candidates = [f"**{n}**" if j < len(drawn) else ("**??**" if j == len(drawn) else "—")
+                              for j, n in enumerate(drawn + [fake] + [0] * (5 - len(drawn)))]
+                spin_str = "   ".join(candidates[:6])
+                await draw_msg.edit(embed=emb(
+                    f"Izvlacenje broja {i+1}/6...",
+                    spin_str,
+                    self.COLOR, footer=f"Izvuceno: {i}/6"))
                 await asyncio.sleep(0.4)
 
-            # Izvuci pravi broj
+            # Pravi broj
             num = pool[i]
             drawn.append(num)
-
-            # Prikazi rezultat ovog broja
             drawn_str = "   ".join(f"**{n}**" for n in drawn)
-            await draw_msg.edit(
-                embed=embed(
-                    f"Broj {i+1}:  {num}",
-                    lottery_drum_art(drawn),
-                    self.COLOR,
-                    fields=[("Izvuceni do sada", drawn_str, False)],
-                    footer=f"Izvuceno: {len(drawn)}/6"
-                )
-            )
+            await draw_msg.edit(embed=emb(
+                f"Broj {i+1}:  {num}",
+                None, self.COLOR,
+                fields=[("Izvuceni do sada", drawn_str, False)],
+                footer=f"Izvuceno: {len(drawn)}/6"))
             await asyncio.sleep(1.8)
 
-        # ── Finalni rezultat ─────────────────────────────────────────────────
+        # Rezultati
         drawn_set = set(drawn)
         drawn_final = "   ".join(f"**{n}**" for n in sorted(drawn))
-
         scores = {}
         for uid, nums in view.tickets.items():
-            hits = len(set(nums) & drawn_set)
-            scores[uid] = hits
+            scores[uid] = len(set(nums) & drawn_set)
             await add_played(uid)
 
         top_score = max(scores.values())
         winners = [uid for uid, s in scores.items() if s == top_score]
 
         if top_score == 0:
-            result = embed(
+            await draw_msg.edit(embed=emb(
                 "LUTRIJA — Nema Pobjednika",
-                f"Niko nije imao pogodaka. Pot propada.",
-                discord.Color.red(),
-                fields=[("Izvuceni brojevi", drawn_final, False)]
-            )
+                "Niko nije imao pogodaka.", discord.Color.red(),
+                fields=[("Izvuceni brojevi", drawn_final, False)]))
         else:
             share = view.pot // len(winners)
-            bonus_items = []
+            bonus_item = None
             for uid in winners:
                 await add_coins(uid, share)
                 await add_win(uid, 50)
                 if top_score >= 5:
                     rtype, item = rand_prize("rare")
                     await add_item(uid, rtype, item)
-                    bonus_items.append(item)
+                    bonus_item = item
             mention = "  ".join(f"<@{uid}>" for uid in winners)
             fields = [
                 ("Izvuceni brojevi", drawn_final, False),
@@ -1211,11 +1160,10 @@ class LotteryGame:
                 ("Pogodaka", f"**{top_score}/6**", True),
                 ("Dobitak po osobi", f"**{share}** {COIN}", True),
             ]
-            if bonus_items:
-                fields.append(("Bonus nagrada", bonus_items[0], False))
-            result = embed("LUTRIJA — Pobjednici!", None, discord.Color.green(), fields=fields)
-
-        await draw_msg.edit(embed=result)
+            if bonus_item:
+                fields.append(("Bonus nagrada", bonus_item, False))
+            await draw_msg.edit(embed=emb(
+                "LUTRIJA — Pobjednici!", None, discord.Color.green(), fields=fields))
         await asyncio.sleep(10)
 
 
@@ -1223,22 +1171,23 @@ class LotteryGame:
 # GAME 9 — EMOJI GUESS
 # ─────────────────────────────────────────────────────────────────────────────
 EMOJI_QUESTIONS = [
-    {"emojis": "👠⏰🎃",  "answers": ["cinderella", "pepeljuga"], "hint": "Disney bajka"},
-    {"emojis": "🌊🐠🔍", "answers": ["nemo", "finding nemo"],    "hint": "Animirani film"},
-    {"emojis": "🦁👑🌍", "answers": ["kralj lavova", "lion king", "simba"], "hint": "Disney film"},
-    {"emojis": "❄️👸✨", "answers": ["frozen", "ledeno kraljevstvo", "elsa"], "hint": "Animirani film"},
-    {"emojis": "🕷️👦🏙️","answers": ["spiderman", "spider-man"], "hint": "Superjunak"},
-    {"emojis": "🦇🤵🌃", "answers": ["batman", "betmen"],        "hint": "Gotham City"},
-    {"emojis": "⚡🧙📚", "answers": ["harry potter", "hari poter"], "hint": "Carobnjak"},
-    {"emojis": "💍🧝🌋", "answers": ["gospodar prstenova", "lord of the rings", "lotr"], "hint": "Fantasy epic"},
-    {"emojis": "🚀👨‍🚀♾️","answers": ["interstellar"],            "hint": "Nolan film"},
-    {"emojis": "🃏🤡🃏", "answers": ["joker", "dzoker"],          "hint": "DC vilain"},
-    {"emojis": "🐉🔥⚔️", "answers": ["igra prijestolja", "game of thrones", "got"], "hint": "HBO serija"},
-    {"emojis": "💊🔵🔴", "answers": ["matrix", "matriks"],        "hint": "Sci-fi klasik"},
-    {"emojis": "🧟‍♂️🔫🌍","answers": ["walking dead", "hodajuci mrtvi"], "hint": "AMC serija"},
-    {"emojis": "👨‍🍳💀🧪","answers": ["breaking bad"],             "hint": "Hemicar"},
-    {"emojis": "🐢🍕🥷", "answers": ["ninja kornjace", "tmnt"],   "hint": "Akcioni crtac"},
-    {"emojis": "🔫🕶️📱", "answers": ["john wick", "dzon vik"],   "hint": "Keanu Reeves"},
+    {"emojis": "👠 ⏰ 🎃",  "answers": ["cinderella", "pepeljuga"],              "hint": "Disney bajka"},
+    {"emojis": "🌊 🐠 🔍",  "answers": ["nemo", "finding nemo"],                 "hint": "Animirani film"},
+    {"emojis": "🦁 👑 🌍",  "answers": ["kralj lavova", "lion king", "simba"],   "hint": "Disney film"},
+    {"emojis": "❄️ 👸 ✨", "answers": ["frozen", "ledeno kraljevstvo", "elsa"],  "hint": "Animirani film"},
+    {"emojis": "🕷️ 👦 🏙️","answers": ["spiderman", "spider-man"],               "hint": "Superjunak"},
+    {"emojis": "🦇 🤵 🌃",  "answers": ["batman", "betmen"],                     "hint": "Gotham City"},
+    {"emojis": "⚡ 🧙 📚",  "answers": ["harry potter", "hari poter"],           "hint": "Carobnjak"},
+    {"emojis": "💍 🧝 🌋",  "answers": ["lord of the rings", "lotr", "gospodar prstenova"], "hint": "Fantasy epic"},
+    {"emojis": "🚀 👨‍🚀 ♾️","answers": ["interstellar"],                          "hint": "Nolan sci-fi"},
+    {"emojis": "🃏 🤡 🃏",  "answers": ["joker", "dzoker"],                      "hint": "DC vilain"},
+    {"emojis": "🐉 🔥 ⚔️", "answers": ["igra prijestolja", "game of thrones"],  "hint": "HBO serija"},
+    {"emojis": "💊 🔵 🔴",  "answers": ["matrix", "matriks"],                    "hint": "Sci-fi klasik"},
+    {"emojis": "🧟 🔫 🌍",  "answers": ["walking dead"],                         "hint": "AMC serija"},
+    {"emojis": "👨‍🍳 💀 🧪","answers": ["breaking bad"],                          "hint": "Hemicar-kriminalac"},
+    {"emojis": "🔫 🕶️ 📱", "answers": ["john wick", "dzon vik"],                "hint": "Keanu Reeves akcija"},
+    {"emojis": "🧠 🌀 💤",  "answers": ["inception", "san"],                     "hint": "Nolan, snovi unutar snova"},
+    {"emojis": "🦈 🏖️ 🩸", "answers": ["ajkula", "jaws", "shark"],              "hint": "Spielberg horor"},
 ]
 
 EMOJI_REWARD = 250
@@ -1254,26 +1203,21 @@ class EmojiGame:
         winner_uid = None
         winner_msg = None
 
-        msg = await channel.send(
-            embed=embed(
-                "EMOJI GUESS — Pogodi!",
-                f"**{q['emojis']}**\n\nNapisi u chat sta ovi emoji predstavljaju!",
-                self.COLOR,
-                fields=[
-                    ("Hint", q['hint'], True),
-                    ("Nagrada", f"**{EMOJI_REWARD}** {COIN}", True),
-                    ("Vrijeme", f"**{EMOJI_TIME}s**", True),
-                ],
-                footer="Emoji Guess"
-            )
-        )
+        msg = await channel.send(embed=emb(
+            "EMOJI GUESS",
+            f"# {q['emojis']}\n\nNapisi u chat sta ovi emoji predstavljaju!",
+            self.COLOR,
+            fields=[
+                ("Hint", q['hint'], True),
+                ("Nagrada", f"**{EMOJI_REWARD}** {COIN}", True),
+                ("Vrijeme", f"**{EMOJI_TIME}s**", True),
+            ],
+            footer="Emoji Guess"
+        ))
 
         def check(m: discord.Message):
-            return (
-                m.channel.id == channel.id
-                and not m.author.bot
-                and any(a in m.content.lower() for a in q["answers"])
-            )
+            return (m.channel.id == channel.id and not m.author.bot
+                    and any(a in m.content.lower() for a in q["answers"]))
 
         try:
             ans = await channel.bot.wait_for("message", timeout=EMOJI_TIME, check=check)
@@ -1286,23 +1230,15 @@ class EmojiGame:
             await ensure_user(winner_uid, winner_msg.author.display_name)
             await add_coins(winner_uid, EMOJI_REWARD)
             await add_win(winner_uid, 30)
-            result = embed(
-                "Tacan Odgovor!",
-                f"<@{winner_uid}> je pogodio!",
-                discord.Color.green(),
+            result = emb("Tacan Odgovor!", None, discord.Color.green(),
                 fields=[
-                    ("Odgovor", f'"{winner_msg.content}"', False),
-                    ("Tacan odgovor", q['answers'][0].title(), True),
+                    ("Pobjednik", f"<@{winner_uid}>", True),
                     ("Dobitak", f"**{EMOJI_REWARD}** {COIN}", True),
-                ]
-            )
+                    ("Tacan odgovor", q['answers'][0].title(), True),
+                ])
         else:
-            result = embed(
-                "Vrijeme Isteklo",
-                f"Niko nije pogodio.",
-                discord.Color.red(),
-                fields=[("Tacan odgovor", q['answers'][0].title(), True)]
-            )
+            result = emb("Vrijeme Isteklo", "Niko nije pogodio.", discord.Color.red(),
+                fields=[("Tacan odgovor", q['answers'][0].title(), True)])
         await msg.edit(embed=result)
         await asyncio.sleep(8)
 
@@ -1320,15 +1256,14 @@ class JackpotView(discord.ui.View):
         self.pot = 0
         self.closed = False
 
-    @discord.ui.button(label="Ulozi u Jackpot — 120 coina", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Ulozi u Jackpot  —  120 coina", style=discord.ButtonStyle.danger)
     async def enter(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.closed:
             return await interaction.response.send_message("Jackpot zatvoren!", ephemeral=True)
         uid = interaction.user.id
         if uid in self.entrants:
             return await interaction.response.send_message(
-                f"Vec si u igri! Pot: **{self.pot}** {COIN}", ephemeral=True
-            )
+                f"Vec si u igri! Pot: **{self.pot}** {COIN}", ephemeral=True)
         await ensure_user(uid, interaction.user.display_name)
         ok = await deduct_coins(uid, JACKPOT_COST)
         if not ok:
@@ -1336,8 +1271,7 @@ class JackpotView(discord.ui.View):
         self.entrants.append(uid)
         self.pot += JACKPOT_COST
         await interaction.response.send_message(
-            f"U igri si! Igraci: **{len(self.entrants)}**  |  Pot: **{self.pot}** {COIN}", ephemeral=True
-        )
+            f"U igri si! Igraci: **{len(self.entrants)}**  |  Pot: **{self.pot}** {COIN}", ephemeral=True)
 
 
 class JackpotGame:
@@ -1346,45 +1280,37 @@ class JackpotGame:
 
     async def run(self, channel: discord.TextChannel):
         view = JackpotView()
-        msg = await channel.send(
-            embed=embed(
-                "JACKPOT EVENT",
-                f"Svi ulaze, **jedan** pobijedi sve!\n\n"
-                f"Ulog: **{JACKPOT_COST}** {COIN} po igracu\n"
-                f"Pobjednik uzima cijeli pot + Legendarnu nagradu!\n\n"
-                f"Prijave traju **{TICK}s** — maks 20 igraca.",
-                self.COLOR,
-                footer=f"Jackpot Event  •  Ulog: {JACKPOT_COST} coina"
-            ),
-            view=view
-        )
+        msg = await channel.send(embed=emb(
+            "JACKPOT EVENT",
+            "Svi ulaze — **jedan** pobijedi sve!",
+            self.COLOR,
+            fields=[
+                ("Ulog", f"**{JACKPOT_COST}** {COIN}", True),
+                ("Nagrada", "Cijeli pot + Legendarni item", True),
+                ("Trajanje prijava", f"**{TICK}s**", True),
+                ("Kako radi", "Sto vise igraca, veci pot. Jedan sretan pobijedi sve!", False),
+            ],
+            footer="Jackpot Event"
+        ), view=view)
         await asyncio.sleep(TICK)
         view.closed = True
         view.stop()
 
         if len(view.entrants) < 2:
-            await msg.edit(
-                embed=embed("JACKPOT EVENT", "Premalo igraca! Ulozi vraceni.", discord.Color.red()),
-                view=None
-            )
+            await msg.edit(embed=emb("JACKPOT EVENT",
+                "Premalo igraca! Ulozi vraceni.", discord.Color.red()), view=None)
             for uid in view.entrants:
                 await add_coins(uid, JACKPOT_COST)
             return
 
-        # Dramaticni odbrojaj
         for countdown in [5, 4, 3, 2, 1]:
-            await msg.edit(
-                embed=embed(
-                    f"JACKPOT — Izvlacenje za {countdown}...",
-                    None,
-                    self.COLOR,
-                    fields=[
-                        ("Igraci", str(len(view.entrants)), True),
-                        ("Pot", f"**{view.pot}** {COIN}", True),
-                    ]
-                ),
-                view=None
-            )
+            await msg.edit(embed=emb(
+                f"JACKPOT — Izvlacenje za {countdown}...",
+                None, self.COLOR,
+                fields=[
+                    ("Igraci", str(len(view.entrants)), True),
+                    ("Pot", f"**{view.pot}** {COIN}", True),
+                ]), view=None)
             await asyncio.sleep(1)
 
         winner = random.choice(view.entrants)
@@ -1395,17 +1321,15 @@ class JackpotGame:
         for uid in view.entrants:
             await add_played(uid)
 
-        await msg.edit(
-            embed=embed(
-                "JACKPOT — Pobjednik!",
-                f"<@{winner}> uzima sve!",
-                discord.Color.gold(),
-                fields=[
-                    ("Pot", f"**{view.pot}** {COIN}", True),
-                    ("Legendarni item", item, True),
-                ]
-            )
-        )
+        await msg.edit(embed=emb(
+            "JACKPOT — Pobjednik!",
+            f"<@{winner}> uzima sve!",
+            discord.Color.gold(),
+            fields=[
+                ("Pot", f"**{view.pot}** {COIN}", True),
+                ("Legendarni item", item, True),
+            ]
+        ))
         await asyncio.sleep(10)
 
 
